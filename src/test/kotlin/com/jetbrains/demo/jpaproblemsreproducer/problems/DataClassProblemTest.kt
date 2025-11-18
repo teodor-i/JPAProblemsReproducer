@@ -160,7 +160,7 @@ data class DOrderItem(
 // ───────────────────────────────────────────────────────────────────────────────
 
 @DataJpaTest
-class DataClassProblemTest2(
+class DataClassProblemTest(
     @Autowired private val userDataRepo: UserDataRepo,
     @Autowired private val userRepo: UserRepo,
     @Autowired private val entityManager: EntityManager,

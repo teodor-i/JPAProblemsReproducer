@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/problems")
 @Transactional
 class ProblemsController(
-    private val personValProblemRepository: PersonValProblemRepository,
+    private val SystemUserRepository: PersonValProblemRepository,
     private val personValSolutionRepository: PersonValSolutionRepository,
     private val companyImmutableProblemRepository: CompanyImmutableProblemRepository,
     private val employeeProblemRepository: EmployeeProblemRepository,
@@ -33,23 +33,10 @@ class ProblemsController(
     private val employeeSolutionRepository: EmployeeSolutionRepository,
     private val companyWithTrulyImmutableRepository: CompanyWithTrulyImmutableRepository,
     private val employeeImmutableRepository: EmployeeImmutableRepository,
-    private val personDataClassProblemRepository: PersonDataClassProblemRepository,
+    private val EmployeeRepository: PersonDataClassProblemRepository,
     private val personSolutionRepository: PersonSolutionRepository,
     private val entityManager: EntityManager // Keep for native queries only
 ) {
-
-    @GetMapping("/val")
-    fun valProblem(): Map<String, String> {
-        val person = personValProblemRepository.save(PersonValProblem(name = "John"))
-        val loaded = personValProblemRepository.findByIdOrNull(person.id!!)!!
-
-        return mapOf(
-            "problem" to "Val vs Var",
-            "issue" to "'val name' was modified by Hibernate via reflection",
-            "name" to loaded.name!!,
-            "result" to "✗ Kotlin immutability violated!"
-        )
-    }
 
     @GetMapping("/immutable-collections")
     fun immutableCollectionsProblem(): Map<String, Any> {
@@ -233,10 +220,38 @@ class ProblemsController(
         )
     }
 
+
+    @GetMapping("/val")
+    fun valProblem(): Map<String, String> {
+        // Step 1: Save an entity with default kind = CUSTOMER
+        val saved = SystemUserRepository.save(SystemUser(name = "Alex Johnson"))
+
+        // Step 2: Simulate DB change (or another Hibernate session that sets ADMIN)
+        SystemUserRepository.updateKind(saved.id!!, UserAcessRights.ADMIN)
+
+        // Step 3: Reload entity — Hibernate sets 'val kind' via reflection
+        val reloaded = SystemUserRepository.findByIdOrNull(saved.id!!)!!
+
+        val mutated = reloaded.kind != UserAcessRights.CUSTOMER
+
+        return mapOf(
+            "problem" to "Val vs Var",
+            "expectedKind" to UserAcessRights.CUSTOMER.name,
+            "actualKind" to reloaded.kind.name,
+            "mutated" to mutated.toString(),
+            "issue" to if (mutated)
+                "'val kind' was changed by Hibernate via reflection. That breaks Kotlin immutability expectations."
+            else
+                "No issue detected",
+            "result" to if (mutated) "✗ Kotlin immutability violated!" else "✓ OK"
+        )
+    }
+
+
     @GetMapping("/data-class")
     fun dataClassProblem(): Map<String, Any> {
-        val person = personDataClassProblemRepository.save(
-            PersonDataClassProblem(name = "Alice", email = "alice@example.com")
+        val person = EmployeeRepository.save(
+            Employee(name = "Alice", email = "alice@example.com")
         )
 
         val entitySet = mutableSetOf(person)
@@ -258,18 +273,21 @@ class ProblemsController(
     // ========================================================================
 
     @GetMapping("/data-class/field-change-breaks-set")
-    fun dataClass_fieldChangeBreaksSetContains(): Map<String, Any> {
-        val person = personDataClassProblemRepository.save(
-            PersonDataClassProblem(name = "John", email = "john@example.com")
+    fun dataClassFieldChangeBreaksSetContains(): Map<String, Any> {
+        // Step 1: Save entity with initial state
+        val person = EmployeeRepository.save(
+            Employee(name = "John", email = "john@example.com", department = "Sales")
         )
+
+        // Step 2: Place the object in a HashSet (its hashCode is based on data class properties)
         val cache = hashSetOf(person)
-
         val containsBefore = cache.contains(person)
-        
-        // Business change: same database row, different non-ID field
-        person.name = "John Updated"
 
-        val containsAfter = cache.contains(person)
+        // Step 3: Business change — same row, but non-ID field is mutated
+        person.department = "Support"
+
+        // Step 4: Check again whether the same object is found in the Set
+        val containsAfter = cache.contains(person) // It's not, however it should be as this is the same entity.
 
         return mapOf(
             "problem" to "Data-class: changing a non-ID field changes hash/equality",
@@ -280,18 +298,18 @@ class ProblemsController(
         )
     }
 
+
+
     @GetMapping("/data-class/set-collapses-duplicates")
     fun dataClass_setCollapsesDuplicateChildren(): Map<String, Any> {
-        // Note: This requires DOrder and DOrderItem entities from DataClassProblemTest
-        // Since they're not in main entities, we'll demonstrate with PersonDataClassProblem
-        val person1 = PersonDataClassProblem(name = "Bob", email = "bob@example.com")
-        val person2 = PersonDataClassProblem(name = "Bob", email = "bob@example.com")
+        val person1 = Employee(name = "Bob", email = "bob@example.com")
+        val person2 = Employee(name = "Bob", email = "bob@example.com")
 
         val entitySet = mutableSetOf(person1, person2)
         val setSize = entitySet.size
 
-        personDataClassProblemRepository.save(person1)
-        personDataClassProblemRepository.save(person2)
+        EmployeeRepository.save(person1)
+        EmployeeRepository.save(person2)
 
         val expectedSize = 2
         val duplicatesCollapsed = setSize < expectedSize
@@ -327,8 +345,8 @@ class ProblemsController(
 
     @GetMapping("/data-class/copy-causes-issues")
     fun dataClass_copy_causesDuplicateInsertOrMergeDetached(): Map<String, Any> {
-        val original = personDataClassProblemRepository.save(
-            PersonDataClassProblem(name = "Alice", email = "a@test.org")
+        val original = EmployeeRepository.save(
+            Employee(name = "Alice", email = "a@test.org")
         )
         val originalId = original.id!!
         entityManager.flush()
@@ -336,18 +354,18 @@ class ProblemsController(
         // Case A: clear id → treated as new → INSERT another row
         val cloneNew = original.copy(name = "Alice v2")
         cloneNew.id = null
-        personDataClassProblemRepository.save(cloneNew)
+        EmployeeRepository.save(cloneNew)
         entityManager.flush()
-        val countAfterClone = personDataClassProblemRepository.count()
+        val countAfterClone = EmployeeRepository.count()
 
         // Case B: keep id → detached instance merged → UPDATE existing row
         entityManager.clear()
         val detachedCopy = original.copy(name = "Alice merged")
-        personDataClassProblemRepository.save(detachedCopy)
+        EmployeeRepository.save(detachedCopy)
         entityManager.flush()
 
-        val finalCount = personDataClassProblemRepository.count()
-        val updated = personDataClassProblemRepository.findById(originalId).orElseThrow()
+        val finalCount = EmployeeRepository.count()
+        val updated = EmployeeRepository.findById(originalId).orElseThrow()
 
         val duplicateInserted = countAfterClone > 1
         val detachedMerged = updated.name == "Alice merged"

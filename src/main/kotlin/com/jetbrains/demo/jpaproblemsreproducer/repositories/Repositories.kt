@@ -1,12 +1,26 @@
 package com.jetbrains.demo.jpaproblemsreproducer.repositories
 
 import com.jetbrains.demo.jpaproblemsreproducer.entities.*
-import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.stereotype.Repository
+import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
+import org.springframework.transaction.annotation.Transactional
 
 // Problem 1: Val vs Var
 @Repository
-interface PersonValProblemRepository : JpaRepository<PersonValProblem, Long>
+
+interface PersonValProblemRepository : JpaRepository<SystemUser, Long> {
+
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update SystemUser p set p.kind = :kind where p.id = :id")
+    fun updateKind(
+        @Param("id") id: Long,
+        @Param("kind") kind: UserAcessRights
+    ): Int
+}
 
 @Repository
 interface PersonValSolutionRepository : JpaRepository<PersonValSolution, Long>
@@ -32,7 +46,7 @@ interface EmployeeImmutableRepository : JpaRepository<EmployeeImmutable, Long>
 
 // Problem 3: Data Class
 @Repository
-interface PersonDataClassProblemRepository : JpaRepository<PersonDataClassProblem, Long>
+interface PersonDataClassProblemRepository : JpaRepository<Employee, Long>
 
 @Repository
 interface PersonSolutionRepository : JpaRepository<PersonSolution, Long>

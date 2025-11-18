@@ -12,13 +12,14 @@ import jakarta.persistence.*
  */
 @Entity
 @Table(name = "person_data_class_problem")
-data class PersonDataClassProblem(
+data class Employee(
     @Id
     @GeneratedValue
     var id: Long? = null,
 
     var name: String? = null,
-    var email: String? = null
+    var email: String? = null,
+    var department: String? = null
 )
 // Data class auto-generates:
 // - equals() that compares id, name, email
